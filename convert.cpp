@@ -1,4 +1,3 @@
-// #include <cstddef>
 #include <cctype>
 #include <exception>
 #include <functional>
@@ -7,7 +6,7 @@
 #include <string>
 #include <unordered_map>
 
-const double _version{0.5};
+constexpr double PROGRAM_VERSION{0.5};
 
 std::unordered_map<std::string, double> length_factors{
     {"m", 1.0},     {"cm", 0.01}, {"mm", 0.001},  {"ft", 0.3048},
@@ -129,6 +128,8 @@ void print_usage() {
               << std::endl;
 }
 
+enum class UnitCategory { Length, Mass, Volume, Tempurature, Unknown };
+
 struct ConversionRule {
     std::string from_unit;
     std::string to_unit;
@@ -143,6 +144,25 @@ struct Args {
     bool list_units{false};
     bool show_version{false};
 };
+
+UnitCategory get_unit_category(std::string unit) {
+
+    if (length_factors.count(unit) > 0) {
+        return UnitCategory::Length;
+    }
+    else if (mass_factors.count(unit) > 0) {
+        return UnitCategory::Mass;
+    }
+    else if (volume_factors.count(unit) > 0) {
+        return UnitCategory::Volume;
+    }
+    else if (temp_units.count(unit) > 0) {
+        return UnitCategory::Tempurature;
+    }
+    else {
+        return UnitCategory::Unknown;
+    }
+}
 
 std::string to_lower(std::string s) {
     for (char &ch : s) {
@@ -208,7 +228,7 @@ Args parse_args(int argc, char *argv[]) {
         }
     }
 
-    if (!result.list_units && !result.show_help) {
+    if (!result.list_units && !result.show_help && !result.show_version) {
         if (!have_from || !have_to || !have_value) {
             throw std::runtime_error("Missing required arguments");
         }
@@ -217,80 +237,56 @@ Args parse_args(int argc, char *argv[]) {
     return result;
 }
 
-double convert(std::string from_unit, std::string to_unit, double value) {
+double convert_via_factors(
+    const std::unordered_map<std::string, double>& factors,
+    const std::string& from_unit,
+    const std::string& to_unit,
+    double value
+) {
+    double from_factor = factors.at(from_unit);
+    double to_factor   = factors.at(to_unit);
 
-    bool from_is_length = length_factors.count(from_unit) > 0;
-    bool to_is_length = length_factors.count(to_unit) > 0;
-
-    bool from_is_mass = mass_factors.count(from_unit) > 0;
-    bool to_is_mass = mass_factors.count(to_unit) > 0;
-
-    bool from_is_volume = volume_factors.count(from_unit) > 0;
-    bool to_is_volume = volume_factors.count(to_unit) > 0;
-
-    bool from_is_temp = temp_units.count(from_unit) > 0;
-    bool to_is_temp = temp_units.count(to_unit) > 0;
-
-    if (length_factors.count(from_unit) > 0 &&
-        length_factors.count(to_unit) > 0) {
-        double from_factor = length_factors.at(from_unit);
-        double to_factor = length_factors.at(to_unit);
-
-        double value_in_meters = value * from_factor;
-        double result = value_in_meters / to_factor;
-
-        return result;
-    }
-    if (mass_factors.count(from_unit) > 0 && mass_factors.count(to_unit) > 0) {
-        double from_factor = mass_factors.at(from_unit);
-        double to_factor = mass_factors.at(to_unit);
-
-        double value_in_kilograms = value * from_factor;
-        double result = value_in_kilograms / to_factor;
-
-        return result;
-    }
-
-    if (volume_factors.count(from_unit) > 0 &&
-        volume_factors.count(to_unit) > 0) {
-        double from_factor = volume_factors.at(from_unit);
-        double to_factor = volume_factors.at(to_unit);
-
-        double value_in_liters = value * from_factor;
-        double result = value_in_liters / to_factor;
-
-        return result;
-    }
-
-    if (temp_units.count(from_unit) > 0 && temp_units.count(to_unit) > 0) {
-        double temp_in_celcius = temp_units[from_unit].to_celsius(value);
-        double result = temp_units[to_unit].from_celsius(temp_in_celcius);
-
-        return result;
-    }
-
-    // if (currency_factors.count(from_unit) > 0 &&         <-- WIP
-    //     currency_factors.count(to_unit) > 0) {
-    //         double from_factor = currency_factors.at(from_unit);
-    //         double to_factor = currency_factors.at(to_unit);
-
-    //         double value_in_dollars = value * from_factor;
-    //         double result = value_in_dollars / to_factor;
-
-    //         return result;
-    //     }
-
-    if ((from_is_length && !to_is_length) || (from_is_mass && !to_is_mass) ||
-        (from_is_volume && !to_is_volume) || (from_is_temp && !to_is_temp)) {
-        throw std::runtime_error(
-            "Incompatible unit types (eg., length vs. mass)");
-    }
-
-    else {
-        throw std::runtime_error("Unknown unit(s): from='" + from_unit +
-                                 "', to='" + to_unit + "'");
-    }
+    double value_in_base = value * from_factor; // meters, kg, liters, etc.
+    return value_in_base / to_factor;
 }
+
+
+double convert(const std::string& from_unit,
+               const std::string& to_unit,
+               double value) {
+
+    UnitCategory cat_from = get_unit_category(from_unit);
+    UnitCategory cat_to   = get_unit_category(to_unit);
+
+    if (cat_from == UnitCategory::Unknown || cat_to == UnitCategory::Unknown) {
+        throw std::runtime_error("Category unknown");
+    }
+
+    if (cat_from != cat_to) {
+        throw std::runtime_error("Incompatible categories");
+    }
+
+    if (cat_from == UnitCategory::Length) {
+        return convert_via_factors(length_factors, from_unit, to_unit, value);
+    }
+
+    if (cat_from == UnitCategory::Mass) {
+        return convert_via_factors(mass_factors, from_unit, to_unit, value);
+    }
+
+    if (cat_from == UnitCategory::Volume) {
+        return convert_via_factors(volume_factors, from_unit, to_unit, value);
+    }
+
+    if (cat_from == UnitCategory::Tempurature) {
+        double in_c = temp_units.at(from_unit).to_celsius(value);
+        return temp_units.at(to_unit).from_celsius(in_c);
+    }
+
+    // Should never get here, but just in case:
+    throw std::runtime_error("Unhandled category");
+}
+
 
 void print_units() {
     std::cout << "Supported units:\n\n";
@@ -336,7 +332,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (args.show_version) {
-            std::cout << "Current Version: \n\t" << _version << "\n";
+            std::cout << "Current Version:\t\033[1;32m" << PROGRAM_VERSION << "\033[0m\n";
             return 0;
         }
 
